@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0c11">
+<title>Album Drift</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0d0c11;
+    --bg-2: #15131b;
+    --line: rgba(255,255,255,.09);
+    --line-strong: rgba(255,255,255,.16);
+    --ink: #f1edf6;
+    --dim: #8f899c;
+    --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --sans: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(1100px 800px at 50% 42%, #17151f 0%, var(--bg) 70%);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* ambient light from the album you're pointing at */
+  .glow { position: fixed; inset: 0; opacity: 0; transition: opacity .8s ease; pointer-events: none; }
+  .glow.on { opacity: 1; }
+
+  .stage { position: fixed; inset: 0; }
+  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .stage canvas:active { cursor: grabbing; }
+
+  /* ---------- top bar ---------- */
+  .bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-areas: "brand views tools";
+    align-items: center;
+    gap: 12px 16px;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 18px 12px;
+    background: linear-gradient(to bottom, rgba(13,12,17,.88), rgba(13,12,17,.55));
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { grid-area: brand; display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+  .brand h1 {
+    margin: 0; font-family: var(--serif); font-weight: 600; font-size: 21px;
+    letter-spacing: -.015em; font-variation-settings: 'opsz' 48;
+    white-space: nowrap;
+  }
+  .brand .count { color: var(--dim); font-size: 13px; white-space: nowrap; }
+
+  .views {
+    grid-area: views; position: relative; display: flex; padding: 3px;
+    border: 1px solid var(--line-strong); border-radius: 999px; background: rgba(255,255,255,.03);
+  }
+  .views button {
+    position: relative; z-index: 1; border: 0; background: none; color: var(--dim);
+    font: 500 13.5px/1 var(--sans); padding: 9px 16px; border-radius: 999px; cursor: pointer;
+    transition: color .25s ease;
+  }
+  .views button:hover:not(:disabled):not([aria-pressed="true"]) { color: var(--ink); }
+  .views button[aria-pressed="true"] { color: #121016; }
+  .views button:disabled { opacity: .38; cursor: default; }
+  .views .thumb {
+    position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: 0;
+    background: var(--ink); border-radius: 999px;
+    transition: transform .4s cubic-bezier(.3,.9,.3,1), width .4s cubic-bezier(.3,.9,.3,1);
+  }
+
+  .tools { grid-area: tools; display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+  .search { position: relative; flex: 0 1 260px; min-width: 0; }
+  .search input {
+    width: 100%; height: 36px; padding: 0 14px; border-radius: 999px;
+    border: 1px solid var(--line-strong); background: rgba(255,255,255,.03); color: var(--ink);
+    font: 400 14px var(--sans); outline: none; transition: border-color .2s, background .2s;
+    -webkit-appearance: none; appearance: none;
+  }
+  .search input::placeholder { color: var(--dim); }
+  .search input:focus { border-color: rgba(255,255,255,.4); background: rgba(255,255,255,.06); }
+  .search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+  .icon-btn {
+    flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    border: 1px solid var(--line-strong); background: rgba(255,255,255,.03); color: var(--dim); cursor: pointer;
+    transition: color .2s, border-color .2s, background .2s;
+  }
+  .icon-btn:hover { color: var(--ink); border-color: rgba(255,255,255,.4); }
+  .icon-btn svg { width: 17px; height: 17px; }
+
+  button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid #cdbfff; outline-offset: 2px; }
+
+  @media (max-width: 860px) {
+    .bar { grid-template-columns: 1fr auto; grid-template-areas: "brand tools" "views views"; padding-bottom: 10px; }
+    .brand .count { display: none; }
+    .views { justify-self: stretch; overflow-x: auto; scrollbar-width: none; }
+    .views::-webkit-scrollbar { display: none; }
+    .views button { flex: 1; padding: 9px 10px; }
+    .search { flex-basis: 200px; }
+  }
+
+  /* ---------- cluster labels ---------- */
+  .labels { position: fixed; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+  .label {
+    position: absolute; left: 0; top: 0; text-align: center; width: max-content; max-width: 170px;
+    opacity: 0; transition: opacity .7s ease; will-change: transform;
+  }
+  .label { transform-origin: 0 0; }
+  .label.in { opacity: 1; }
+  .label.in.hide { opacity: 0; }
+  .label .name {
+    display: block; font-family: var(--serif); font-weight: 400; font-size: 23px; line-height: 1.1;
+    letter-spacing: -.01em; font-variation-settings: 'opsz' 72; color: var(--ink); text-wrap: balance;
+  }
+  .label .n { display: block; margin-top: 4px; font-size: 12px; color: var(--dim); }
+
+  /* ---------- hover tip ---------- */
+  .tip {
+    position: fixed; z-index: 6; left: 0; top: 0; pointer-events: none; max-width: 280px;
+    padding: 9px 12px; border-radius: 12px; background: rgba(20,18,26,.92);
+    border: 1px solid var(--line-strong); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    opacity: 0; transition: opacity .15s ease;
+  }
+  .tip.on { opacity: 1; }
+  .tip b { display: block; font-weight: 600; font-size: 13.5px; line-height: 1.3; }
+  .tip span { display: block; color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+
+  /* ---------- detail card ---------- */
+  .panel {
+    position: fixed; z-index: 7; left: 20px; bottom: 20px; width: 340px; max-width: calc(100vw - 24px);
+    padding: 14px; border-radius: 24px; background: rgba(21,19,27,.9);
+    border: 1px solid var(--line-strong);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.7);
+    opacity: 0; transform: translateY(18px) scale(.98); pointer-events: none; visibility: hidden;
+    transition: opacity .3s ease, transform .4s cubic-bezier(.3,.9,.3,1), visibility 0s .4s;
+  }
+  .panel[data-open="true"] { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s; }
+  .panel .art { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 16px; background: var(--bg-2); }
+  .panel .info { padding: 14px 4px 4px; }
+  .panel h2 { margin: 0; font-family: var(--serif); font-weight: 600; font-size: 22px; line-height: 1.15; letter-spacing: -.01em; font-variation-settings: 'opsz' 48; }
+  .panel .by { margin: 6px 0 0; color: var(--ink); font-size: 15px; }
+  .panel .facts { margin: 6px 0 0; color: var(--dim); font-size: 13px; line-height: 1.5; }
+  .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+  .chip { font-size: 12.5px; color: var(--dim); border: 1px solid var(--line-strong); border-radius: 999px; padding: 6px 11px; }
+  .open {
+    font: 600 13.5px var(--sans); color: #121016; background: var(--ink); text-decoration: none;
+    padding: 10px 16px; border-radius: 999px; transition: transform .15s ease;
+  }
+  .open:hover { transform: translateY(-1px); }
+  .panel .close {
+    position: absolute; top: 22px; right: 22px; width: 32px; height: 32px; border-radius: 50%; border: 0;
+    background: rgba(13,12,17,.6); color: var(--ink); cursor: pointer; display: grid; place-items: center;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .panel .close svg { width: 14px; height: 14px; }
+  @media (max-width: 560px) {
+    .panel { left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: auto;
+      display: grid; grid-template-columns: 112px 1fr; gap: 14px; padding: 12px; border-radius: 22px; }
+    .panel .art { width: 112px; border-radius: 14px; }
+    .panel .info { padding: 2px 0 0; min-width: 0; }
+    .panel h2 { font-size: 18px; padding-right: 30px; }
+    .panel .row { margin-top: 10px; flex-wrap: wrap; justify-content: flex-start; }
+    .panel .close { top: 18px; right: 18px; }
+  }
+
+  .panel .songs { margin: 10px 0 0; max-height: 96px; overflow-y: auto; color: var(--dim); font-size: 12.5px; line-height: 1.55; white-space: pre-line; scrollbar-width: thin; }
+  .msg { position: fixed; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; z-index: 3; }
+  .msg.on { display: grid; }
+  .msg p { max-width: 420px; color: var(--dim); line-height: 1.55; font-size: 15px; }
+  .msg code { color: var(--ink); background: rgba(255,255,255,.07); padding: 2px 6px; border-radius: 6px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .views .thumb, .panel, .label, .glow, .tip { transition-duration: .01s; }
+  }
+</style>
+</head>
+<body>
+
+<div class="glow" id="glowA"></div>
+<div class="glow" id="glowB"></div>
+
+<main class="stage" id="stage">
+  <canvas id="cv" aria-label="Map of your saved albums. Drag to pan, scroll or pinch to zoom, select an album for details."></canvas>
+</main>
+<div class="labels" id="labels"></div>
+<div class="tip" id="tip" role="presentation"><b></b><span></span></div>
+
+<header class="bar" id="bar">
+  <div class="brand">
+    <h1>Album Drift</h1>
+    <span class="count" id="count"></span>
+  </div>
+
+  <nav class="views" id="views" aria-label="Group albums by">
+    <span class="thumb" id="thumb"></span>
+    <button type="button" data-mode="genre" aria-pressed="true">Genre</button>
+    <button type="button" data-mode="playlist" aria-pressed="false">Playlist</button>
+    <button type="button" data-mode="decade" aria-pressed="false">Decade</button>
+    <button type="button" data-mode="color" aria-pressed="false" id="colorBtn" disabled title="Reading cover colors…">Color</button>
+    <button type="button" data-mode="artist" aria-pressed="false">Artist</button>
+  </nav>
+
+  <div class="tools">
+    <label class="search">
+      <input id="q" type="search" placeholder="Find an album or artist" autocomplete="off" spellcheck="false" aria-label="Find an album or artist">
+    </label>
+    <button type="button" class="icon-btn" id="recenter" aria-label="Show everything" title="Show everything">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg>
+    </button>
+  </div>
+</header>
+
+<aside class="panel" id="panel" data-open="false" aria-live="polite">
+  <button type="button" class="close" id="closeBtn" aria-label="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+  <img class="art" id="pArt" alt="">
+  <div class="info">
+    <h2 id="pTitle"></h2>
+    <p class="by" id="pBy"></p>
+    <p class="facts" id="pFacts"></p>
+    <p class="songs" id="pSongs"></p>
+    <div class="row">
+      <span class="chip" id="pGenre"></span>
+      <a class="open" id="pOpen" target="_blank" rel="noopener">Open in Spotify</a>
+    </div>
+  </div>
+</aside>
+
+<div class="msg" id="msg"><p id="msgText"></p></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  /* =====================================================================
+     GENRE GROUPS
+     Spotify no longer returns genres for new apps, so these are sorted by
+     hand from artist names. To move an artist, cut their name out of one
+     list and paste it into another. Anyone not listed lands in "Wildcards".
+     ===================================================================== */
+  const GENRES = {
+    'Hip-hop': [
+      '21 Savage','2Pac','A Tribe Called Quest','A$AP Rocky','Baby Keem','Bahamadia','billy woods','Caleb Giles',
+      'Cities Aviv','D12','Denzel Curry','Devon Hendryx','Eminem','GZA','JID','JPEGMAFIA','Kanye West','Ken Carson',
+      'Kendrick Lamar','King Geedorah','Little Simz','Mac Miller','Main Attrakionz','MondreMAN','Montell Fish','Nas',
+      'Naughty By Nature','Oxxxymiron','Pink Siifu','Playboi Carti','Snoop Dogg','The Alchemist','The Pharcyde',
+      'Travis Scott','Tyler, The Creator','Westside Connection','Westside Gunn','Wu-Tang Clan','Yung Lean'
+    ],
+    'Indie & alt rock': [
+      'Arctic Monkeys','Blake Babies','Fountains Of Wayne','Liz Phair','Mac DeMarco','Pavement','Radiohead','The Smiths',
+      'The Strokes','The Velvet Underground','Twenty One Pilots','Tame Impala','Teen Suicide','bar italia',
+      'The Last Dinner Party','Animal Collective','Gorillaz','Dominic Fike','Wilbur Soot','Hayley Williams','Kino',
+      'Molchat Doma','The Nymphs','Inger Lorre','Jeff Buckley','bôa','TV Girl'
+    ],
+    'Dream pop & shoegaze': [
+      'Beach House','Cigarettes After Sex','Cocteau Twins','Galaxie 500','Lush','Men I Trust','Mojave 3',
+      'Red House Painters','Duster','Wisp','Elysian Fields','HYBS','The Marías','Clairo','Bowery Electric','Seefeel',
+      'Have A Nice Life','Panchiko'
+    ],
+    'Folk & songwriters': [
+      'Adrianne Lenker','Big Thief','Elliott Smith','Nick Drake','Molly Drake','Vashti Bunyan','Leonard Cohen',
+      'Michael Cera','Esha Tewari'
+    ],
+    'K-pop': [
+      'aespa','BIBI','CHAEYOUNG','ITZY','IU','JENNIE','KATSEYE','KISS OF LIFE','LE SSERAFIM','NMIXX','TWICE','TZUYU','YEJI'
+    ],
+    'Pop, R&B & soul': [
+      'Bruno Mars','Charli xcx','Frank Ocean','Janet Jackson','Jessie Ware','Joji','Michael Jackson','The Jacksons',
+      'Orion Sun','Ray J','Sade','Shura','The Weeknd','Tom Misch','Matt Martians','Diana King','SMiLE.dk',
+      'The Isley Brothers','Funkadelic','The Soul Searchers','Yussef Dayes','Kate Bush'
+    ],
+    'City pop & Japan': [
+      'Haruomi Hosono','Junko Ohashi','Junko Yagami','m-flo','Masaki Matsubara','Shota Shimizu','SaToA','Shuta Hasunuma',
+      'TOGO SOUL 2','間宮貴子','Ichiko Aoba','Ryuichi Sakamoto'
+    ],
+    'Electronic & experimental': ['Daft Punk','Suicide','Dean Blunt','Icegergert'],
+    'Heavy': ['Black Breath','Children Of Bodom','Deep Purple','Deftones','Ministry'],
+    'Classical & oldies': [
+      'Dmitri Shostakovich','Hamlet Minassian','Hania Rani','Alberto Baldan Bembo','Carpenters','Dalida','Ricky Nelson',
+      'Skeeter Davis','The Mills Brothers','John Michael Montgomery','Wings','John Lennon','George Harrison'
+    ],
+    'World': ['Nusrat Fateh Ali Khan','Akofa Akoussah','Kafabindünya']
+  };
+  // second batch, sorted from the new library
+  const EXTRA = {
+    'Jazz': ["Miles Davis","Charles Mingus","Duke Ellington","Ella Fitzgerald","George Benson","John Coltrane","Billie Holiday","Chet Baker","Bobbi Humphrey","Frank Sinatra","Nina Simone"],
+    'Classic rock': ["Van Morrison","David Bowie","Bob Dylan","Genesis","The Beatles","Queen","Led Zeppelin","Jimi Hendrix","Rush","The Police","Van Halen","Neil Young","Kansas","Lynyrd Skynyrd","The Doors","Bruce Springsteen","Simon & Garfunkel","Elvis Presley","ABBA","Bee Gees","Oasis","Frank Zappa","The Electric Prunes","KISS","Tom Waits"],
+    'Punk & post-punk': ["Siouxsie and the Banshees","Iggy Pop","The Clash","Social Distortion","Nick Cave & The Bad Seeds","The Birthday Party","Bad Brains","Fishbone","The Stooges","Lou Reed","Patti Smith","The Stone Roses","Elvis Costello","Elvis Costello & The Attractions","Descendents","Fugazi","Jane's Addiction","The Jesus Lizard","MC5","Shudder To Think","Sex Pistols","Bauhaus","Depeche Mode","Title Fight","Brand New","The Smashing Pumpkins","Morrissey"],
+    'Blues, reggae & funk': ["Muddy Waters","Sly & The Family Stone","Bob Marley & The Wailers","Ray Charles","Peter Tosh","Robert Johnson","Mississippi John Hurt","Marvin Gaye","Sam Cooke","Prince"],
+    'Folk & songwriters': ["Joni Mitchell","Sharon Van Etten","Michael Nau"],
+    'K-pop': ["NewJeans","Lee Hyori","DEAN"],
+    'Pop, R&B & soul': ["Taylor Swift","SZA","Kali Uchis","Laufey","Steve Lacy","Omar Apollo","keshi","Mk.gee","Chase Atlantic","Khamari"],
+    'Hip-hop': ["Lil Peep","XXXTENTACION","The Notorious B.I.G.","Gang Starr","Future","Ol' Dirty Bastard","A$AP Mob","Nardo Wick","MadeinTYO","PaulPeezy"],
+    'Indie & alt rock': ["Hotel Ugly","Current Joys","Black Box Recorder","The Fray"],
+    'Dream pop & shoegaze': ["Carissa's Wierd"],
+    'City pop & Japan': ["落日飛車 Sunset Rollercoaster","Fishmans"],
+    'Electronic & experimental': ["The Caretaker","100 gecs","Enigma","Skinny Puppy"],
+    'Russian & post-Soviet': ["Где Фантом?","Перемотка","Мать Тереза","ОБРАЗ","Свидетельство О Смерти","Mark Bernes"]
+  };
+  for (const [g, list] of Object.entries(EXTRA)) GENRES[g] = (GENRES[g] || []).concat(list);
+  const UNSORTED = 'Wildcards';
+  const TAILS = new Set([UNSORTED, 'Everyone else', 'Small playlists', 'Not in a playlist']);
+  // Artists I haven't sorted by hand fall back on the playlists their songs sit in
+  const AMBIENT_PLAYLIST = 'womp';
+  const PLAYLIST_HINTS = {
+    'Rap': 'Hip-hop', 'good kpop': 'K-pop', 'the city pops': 'City pop & Japan', 'jass': 'Jazz',
+    'Nick drake': 'Folk & songwriters', 'nilsu': 'Folk & songwriters',
+    'Lullaby': 'Ambient', 'calm': 'Ambient', 'Ambient weird': 'Ambient'
+  };
+
+  /* ---------- tunables ---------- */
+  const HALF = 30;            // half the width of a tile, in map units
+  const COLLIDE = 32.5;       // how much room each tile claims
+  const BASE_ALPHA = 0.02;    // keeps the map gently moving
+  const THUMB = 112;           // covers are shrunk to this size once loaded
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- elements ---------- */
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage'), cv = $('cv'), ctx = cv.getContext('2d');
+  const bar = $('bar'), viewsEl = $('views'), thumb = $('thumb'), colorBtn = $('colorBtn');
+  const labelsEl = $('labels'), tip = $('tip'), panel = $('panel'), qInput = $('q');
+  const glows = [$('glowA'), $('glowB')];
+
+  /* ---------- state ---------- */
+  let nodes = [], sim, mode = 'genre', tr = d3.zoomIdentity, dpr = 1;
+  let hover = null, selected = null, dragging = null, matches = null;
+  let labelItems = [], bounds = null;
+  let colorReady = false, colorBlocked = false, settled = 0, wasPortrait = false;
+  let mouseX = 0, mouseY = 0, pointerIsMouse = true;
+  let glowIdx = 0, glowKey = null;
+
+  /* ---------- helpers ---------- */
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const easeOutBack = (t) => { const c1 = 1.5, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+  const hashHue = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
+
+  function showMessage(html) { $('msgText').innerHTML = html; $('msg').classList.add('on'); }
+
+  /* ---------- color reading (runs in the browser, on the covers) ---------- */
+  const probe = document.createElement('canvas'); probe.width = probe.height = 16;
+  const pctx = probe.getContext('2d', { willReadFrequently: true });
+
+  function readColor(img) {
+    try {
+      pctx.clearRect(0, 0, 16, 16);
+      pctx.drawImage(img, 0, 0, 16, 16);
+      const d = pctx.getImageData(0, 0, 16, 16).data;
+      let sr = 0, sg = 0, sb = 0, sw = 0, lum = 0, chroma = 0;
+      const hueW = [0, 0, 0, 0, 0];
+      const px = d.length / 4;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const c = (mx - mn) / 255;
+        const w = c * c + 0.01;
+        sr += r * w; sg += g * w; sb += b * w; sw += w;
+        lum += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        chroma += c;
+        if (c > 0.12) {
+          let h;
+          if (mx === mn) h = 0;
+          else if (mx === r) h = ((g - b) / (mx - mn) + 6) % 6;
+          else if (mx === g) h = (b - r) / (mx - mn) + 2;
+          else h = (r - g) / (mx - mn) + 4;
+          h *= 60;
+          const k = (h >= 345 || h < 15) ? 0 : h < 65 ? 1 : h < 170 ? 2 : h < 260 ? 3 : 4;
+          hueW[k] += c * c;
+        }
+      }
+      lum /= px; chroma /= px;
+      let bucket;
+      if (chroma < 0.15) bucket = lum < 0.32 ? 'Near black' : lum > 0.68 ? 'Near white' : 'Greys';
+      else {
+        const names = ['Reds', 'Oranges & yellows', 'Greens', 'Blues', 'Purples & pinks'];
+        bucket = names[hueW.indexOf(Math.max(...hueW))];
+      }
+      return { rgb: [Math.round(sr / sw), Math.round(sg / sw), Math.round(sb / sw)], bucket };
+    } catch (e) {
+      colorBlocked = true;
+      return null;
+    }
+  }
+
+  /* ---------- grouping ---------- */
+  const genreMap = new Map();
+  for (const [g, list] of Object.entries(GENRES)) for (const a of list) if (!genreMap.has(a.toLowerCase())) genreMap.set(a.toLowerCase(), g);
+  function genreFor(a) {
+    for (const name of a.artists) { const g = genreMap.get(name.toLowerCase()); if (g) return g; }
+    return UNSORTED;
+  }
+
+  function genreOf(a) {
+    if (a.playlists && a.playlists[AMBIENT_PLAYLIST]) return 'Ambient';
+    const g = genreFor(a);
+    if (g !== UNSORTED) return g;
+    let best = null, bn = 0;
+    for (const [p, c] of Object.entries(a.playlists || {})) if (PLAYLIST_HINTS[p] && c > bn) { best = PLAYLIST_HINTS[p]; bn = c; }
+    return best || UNSORTED;
+  }
+
+  function groupKey(n, m) {
+    if (m === 'genre') return n.genre;
+    if (m === 'playlist') return n.pl;
+    if (m === 'decade') return n.year ? Math.floor(n.year / 10) * 10 + 's' : 'Year unknown';
+    if (m === 'color') return n.bucket || 'Greys';
+    return n.artistCount >= 5 ? n.artists[0] : 'Everyone else';
+  }
+
+  /* ---------- layout: where each group's center sits ---------- */
+  function layout(m) {
+    const groups = new Map();
+    for (const n of nodes) {
+      const k = groupKey(n, m);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(n);
+    }
+    let list = [...groups.entries()].map(([name, ns]) => ({ name, nodes: ns, r: 36.5 * Math.sqrt(ns.reduce((t, n) => t + n.sz * n.sz, 0)) + 74 }));
+    if (m === 'decade') list.sort((a, b) => parseInt(a.name) - parseInt(b.name) || a.name.localeCompare(b.name));
+    else list.sort((a, b) => {
+      const tail = (x) => TAILS.has(x.name) ? 1 : 0;
+      return tail(a) - tail(b) || b.nodes.length - a.nodes.length;
+    });
+    wasPortrait = stage.clientHeight > stage.clientWidth * 1.1;
+    if (wasPortrait) shelfPack(list); else d3.packSiblings(list);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    list.forEach((g, gi) => {
+      for (const n of g.nodes) { n.tx = g.x; n.ty = g.y; n.gi = gi; }
+      x0 = Math.min(x0, g.x - g.r); x1 = Math.max(x1, g.x + g.r);
+      y0 = Math.min(y0, g.y - g.r - 10); y1 = Math.max(y1, g.y + g.r);
+    });
+    bounds = { x0, y0, x1, y1 };
+    return list;
+  }
+
+  // tall screens get rows instead of a round pile, so the map fills a phone
+  function shelfPack(list) {
+    const W = stage.clientWidth, H = stage.clientHeight - bar.offsetHeight;
+    const area = list.reduce((t, g) => t + 4 * g.r * g.r, 0);
+    const maxW = Math.max(Math.sqrt(area * 1.1 / (H / W)), 2 * Math.max(...list.map((g) => g.r)));
+    const rows = [];
+    let row = { items: [], w: 0, h: 0 };
+    for (const g of list) {
+      const d = 2 * g.r;
+      if (row.items.length && row.w + d > maxW) { rows.push(row); row = { items: [], w: 0, h: 0 }; }
+      row.items.push(g); row.w += d; row.h = Math.max(row.h, d);
+    }
+    rows.push(row);
+    let y = 0;
+    for (const r of rows) {
+      let x = -r.w / 2;
+      for (const g of r.items) { g.x = x + g.r; g.y = y + r.h / 2; x += 2 * g.r; }
+      y += r.h;
+    }
+  }
+
+  function buildLabels(list) {
+    const old = [...labelsEl.children];
+    old.forEach((el) => { el.classList.remove('in'); setTimeout(() => el.remove(), 750); });
+    labelItems = list.map((g) => {
+      const el = document.createElement('div');
+      el.className = 'label';
+      const name = document.createElement('span'); name.className = 'name'; name.textContent = g.name;
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = g.nodes.length + (g.nodes.length === 1 ? ' album' : ' albums');
+      el.append(name, n);
+      labelsEl.appendChild(el);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
+      return { el, nodes: g.nodes, x: null, y: null };
+    });
+  }
+
+  /* ---------- camera ---------- */
+  const zoom = d3.zoom().scaleExtent([0.03, 8]);
+  const sel = d3.select(cv);
+
+  function fit(duration) {
+    if (!bounds) return;
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const top = bar.offsetHeight + 16, pad = 20;
+    const aw = W - pad * 2, ah = H - top - pad;
+    const bw = bounds.x1 - bounds.x0, bh = bounds.y1 - bounds.y0;
+    const k = Math.min(aw / bw, ah / bh, 1.3);
+    const cx = (bounds.x0 + bounds.x1) / 2, cy = (bounds.y0 + bounds.y1) / 2;
+    const t = d3.zoomIdentity.translate(W / 2 - cx * k, top + ah / 2 - cy * k).scale(k);
+    if (duration && !reduceMotion) sel.transition().duration(duration).ease(d3.easeCubicInOut).call(zoom.transform, t);
+    else sel.call(zoom.transform, t);
+  }
+
+  function focusOn(n) {
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const top = bar.offsetHeight;
+    const k = Math.max(tr.k, 2.4);
+    const t = d3.zoomIdentity.translate(W / 2 - n.x * k, (H + top) / 2 - n.y * k - (W < 560 ? 70 : 0)).scale(k);
+    if (reduceMotion) sel.call(zoom.transform, t);
+    else sel.transition().duration(900).ease(d3.easeCubicInOut).call(zoom.transform, t);
+  }
+
+  /* ---------- hit testing ---------- */
+  function nodeAt(sx, sy) {
+    const wx = (sx - tr.x) / tr.k, wy = (sy - tr.y) / tr.k;
+    const test = (n) => { const s = HALF * n.sz * (1 + 0.3 * n.h); return Math.abs(wx - n.x) <= s && Math.abs(wy - n.y) <= s; };
+    if (hover && test(hover)) return hover;
+    for (let i = nodes.length - 1; i >= 0; i--) if (test(nodes[i])) return nodes[i];
+    return null;
+  }
+  function evPoint(e) {
+    const p = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+    const r = cv.getBoundingClientRect();
+    return [p.clientX - r.left, p.clientY - r.top];
+  }
+
+  /* ---------- drawing ---------- */
+  function roundRect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawTile(n, now, vis) {
+    const age = (now - n.born) / 900;
+    if (age <= 0) return;
+    const ap = age >= 1 ? 1 : easeOutBack(age);
+    const s = HALF * n.sz * ap * (1 + 0.3 * n.h) * (n === selected ? 1.08 : 1);
+    if (s < 0.5) return;
+    if (n.x + s < vis.x0 || n.x - s > vis.x1 || n.y + s < vis.y0 || n.y - s > vis.y1) return;
+
+    const alpha = n.o * Math.min(1, age * 3);
+    const breathe = reduceMotion ? 0 : 0.04 * Math.sin(now * 0.0011 + n.ph);
+    const rad = s * (0.46 + 0.4 * n.h + breathe);
+    const x = n.x - s, y = n.y - s, w = s * 2;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    roundRect(x, y, w, w, rad);
+    if (n.h > 0.03) {
+      ctx.shadowColor = 'rgba(0,0,0,.6)';
+      ctx.shadowBlur = 30 * dpr * n.h;
+      ctx.shadowOffsetY = 10 * dpr * n.h;
+    }
+    ctx.fillStyle = n.col;
+    ctx.fill();
+    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    if (n.img) {
+      ctx.clip();
+      ctx.globalAlpha = alpha * Math.min(1, (now - n.loadT) / 350);
+      ctx.drawImage(n.img, x, y, w, w);
+    } else if (n.failed) {
+      ctx.fillStyle = 'rgba(255,255,255,.55)';
+      ctx.font = `600 ${s * 0.9}px 'Instrument Sans', sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(n.name.charAt(0).toUpperCase(), n.x, n.y + s * 0.04);
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.9;
+    roundRect(x, y, w, w, rad);
+    ctx.lineWidth = 1 / tr.k;
+    ctx.strokeStyle = 'rgba(255,255,255,.10)';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw(now) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.setTransform(dpr * tr.k, 0, 0, dpr * tr.k, dpr * tr.x, dpr * tr.y);
+    const vis = {
+      x0: -tr.x / tr.k - 40, y0: -tr.y / tr.k - 40,
+      x1: (cv.width / dpr - tr.x) / tr.k + 40, y1: (cv.height / dpr - tr.y) / tr.k + 40
+    };
+    const active = [];
+    for (const n of nodes) {
+      if (n === hover || n === dragging || n === selected) active.push(n); else drawTile(n, now, vis);
+    }
+    for (const n of active) drawTile(n, now, vis);
+  }
+
+  /* ---------- labels follow their clusters ---------- */
+  function updateLabels() {
+    const shown = [];
+    const scale = clamp(tr.k * 1.7, 0.62, 1.05);
+    for (const L of labelItems) {
+      let sx = 0, top = Infinity;
+      for (const n of L.nodes) { sx += n.x; if (n.y < top) top = n.y; }
+      const tx = sx / L.nodes.length, ty = top - HALF - 10;
+      if (L.x === null) { L.x = tx; L.y = ty; } else { L.x += (tx - L.x) * 0.12; L.y += (ty - L.y) * 0.12; }
+      const px = tr.x + L.x * tr.k, py = tr.y + L.y * tr.k;
+      L.el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px) scale(${scale.toFixed(3)}) translate(-50%, -100%)`;
+      if (!L.w) { L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
+      L.rect = { l: px - (L.w * scale) / 2 - 3, r: px + (L.w * scale) / 2 + 3, t: py - L.h * scale - 2, b: py + 2 };
+    }
+    // biggest groups win when labels would collide
+    for (const L of labelItems.slice().sort((a, b) => b.nodes.length - a.nodes.length)) {
+      const R = L.rect;
+      const clash = shown.some((o) => R.l < o.r && R.r > o.l && R.t < o.b && R.b > o.t);
+      L.el.classList.toggle('hide', clash);
+      if (!clash) shown.push(R);
+    }
+  }
+
+  /* ---------- ambient glow ---------- */
+  function updateGlow() {
+    const target = hover || selected;
+    const key = target ? target.id + '|' + (target.rgb || '') : null;
+    if (key === glowKey) return;
+    glowKey = key;
+    const cur = glows[glowIdx];
+    if (!target || !target.rgb) { cur.classList.remove('on'); return; }
+    const next = glows[glowIdx ^ 1];
+    const gx = clamp(tr.x + target.x * tr.k, 0, innerWidth), gy = clamp(tr.y + target.y * tr.k, 0, innerHeight);
+    next.style.background = `radial-gradient(${Math.max(innerWidth, 700) * 0.5}px ${Math.max(innerHeight, 600) * 0.5}px at ${gx}px ${gy}px, rgba(${target.rgb.join(',')},.30), transparent 72%)`;
+    next.classList.add('on');
+    cur.classList.remove('on');
+    glowIdx ^= 1;
+  }
+
+  /* ---------- frame loop ---------- */
+  function frame(now) {
+    requestAnimationFrame(frame);
+    for (const n of nodes) {
+      n.h += (((n === hover || n === dragging) ? 1 : 0) - n.h) * 0.16;
+      n.o += ((matches && !matches.has(n.id) ? 0.12 : n.dim) - n.o) * 0.14;
+    }
+    draw(now);
+    updateLabels();
+    updateGlow();
+  }
+
+  /* ---------- simulation ---------- */
+  function drift() {
+    if (reduceMotion) return;
+    const t = performance.now();
+    for (const n of nodes) {
+      n.vx += Math.cos(t * 0.00042 + n.ph) * 0.05;
+      n.vy += Math.sin(t * 0.00035 + n.ph * 1.7) * 0.05;
+    }
+  }
+
+  function startSim() {
+    sim = d3.forceSimulation(nodes)
+      .velocityDecay(0.32)
+      .alphaDecay(0.02)
+      .alphaTarget(reduceMotion ? 0 : BASE_ALPHA)
+      .force('x', d3.forceX((d) => d.tx).strength(0.12))
+      .force('y', d3.forceY((d) => d.ty).strength(0.12))
+      .force('collide', d3.forceCollide((d) => COLLIDE * d.sz).strength(0.85).iterations(2))
+      .force('drift', drift);
+    if (reduceMotion) { sim.tick(400); sim.stop(); }
+  }
+
+  function setMode(m, instant) {
+    mode = m;
+    for (const b of viewsEl.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.mode === m));
+    moveThumb();
+    const list = layout(m);
+    buildLabels(list);
+    if (instant) { for (const n of nodes) { n.x = n.tx + (Math.random() - .5) * 8; n.y = n.ty + (Math.random() - .5) * 8; } }
+    if (sim) {
+      // d3 caches each target when the force is set up, so refresh them after a re-layout
+      sim.force('x').x((d) => d.tx);
+      sim.force('y').y((d) => d.ty);
+      sim.alpha(0.9).restart();
+      if (reduceMotion) { sim.tick(300); sim.stop(); }
+    }
+    fit(instant ? 0 : 1300);
+  }
+
+  function moveThumb() {
+    const b = viewsEl.querySelector('[aria-pressed="true"]');
+    if (!b) return;
+    thumb.style.width = b.offsetWidth + 'px';
+    thumb.style.transform = `translateX(${b.offsetLeft}px)`;
+  }
+
+  /* ---------- detail card ---------- */
+  function openPanel(n) {
+    selected = n;
+    $('pArt').src = n.cover || '';
+    $('pArt').alt = `Cover of ${n.name}`;
+    $('pTitle').textContent = n.name;
+    $('pBy').textContent = n.artists.join(', ');
+    const bits = [];
+    if (n.year) bits.push(String(n.year));
+    if (n.tracks) bits.push(n.tracks + (n.tracks === 1 ? ' track' : ' tracks'));
+    let facts = bits.join(', ');
+    if (n.addedAt) {
+      const d = new Date(n.addedAt);
+      if (!isNaN(d)) facts += (facts ? '. ' : '') + (n.saved ? 'Saved ' : 'First song added ') + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    $('pFacts').textContent = facts;
+    const songs = n.songs || [];
+    $('pSongs').textContent = (n.saved ? 'Saved album. ' : '') + songs.length + (songs.length === 1 ? ' song' : ' songs') + ' in your library:\n' + songs.join('\n');
+    $('pGenre').textContent = n.genre;
+    const link = $('pOpen');
+    if (n.url) { link.href = n.url; link.style.display = ''; } else link.style.display = 'none';
+    panel.dataset.open = 'true';
+  }
+  function closePanel() { selected = null; panel.dataset.open = 'false'; }
+
+  /* ---------- tooltip ---------- */
+  function updateTip() {
+    if (hover && !dragging && pointerIsMouse) {
+      tip.firstElementChild.textContent = hover.name;
+      tip.lastElementChild.textContent = hover.artists.join(', ') + (hover.year ? ', ' + hover.year : '');
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      const x = Math.min(mouseX + 18, innerWidth - w - 12);
+      const y = Math.min(mouseY + 18, innerHeight - h - 12);
+      tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+      tip.classList.add('on');
+    } else tip.classList.remove('on');
+  }
+
+  /* ---------- input ---------- */
+  function wireInput() {
+    zoom.filter((e) => {
+      if (e.type === 'wheel') return true;
+      if (e.touches && e.touches.length > 1) return true;
+      if (e.button) return false;
+      const [x, y] = evPoint(e);
+      return !nodeAt(x, y);
+    }).on('zoom', (e) => { tr = e.transform; });
+    sel.call(zoom).on('dblclick.zoom', null);
+
+    let start = null;
+    const drag = d3.drag()
+      .container(function () { return this; })
+      .filter((e) => !e.button && !(e.touches && e.touches.length > 1))
+      .subject((e) => { const n = nodeAt(e.x, e.y); return n ? { node: n, x: e.x, y: e.y } : null; })
+      .on('start', (e) => {
+        const n = e.subject.node;
+        dragging = n; start = { x: e.x, y: e.y, t: performance.now() };
+        n.fx = n.x; n.fy = n.y;
+        if (!reduceMotion) sim.alphaTarget(0.2).restart();
+        tip.classList.remove('on');
+      })
+      .on('drag', (e) => {
+        const n = e.subject.node;
+        n.fx = (e.x - tr.x) / tr.k; n.fy = (e.y - tr.y) / tr.k;
+        if (reduceMotion) { n.x = n.fx; n.y = n.fy; }
+      })
+      .on('end', (e) => {
+        const n = e.subject.node;
+        n.fx = null; n.fy = null;
+        if (!reduceMotion) sim.alphaTarget(BASE_ALPHA);
+        const moved = Math.hypot(e.x - start.x, e.y - start.y);
+        dragging = null;
+        if (moved < 6) openPanel(n);
+      });
+    sel.call(drag);
+
+    cv.addEventListener('pointermove', (e) => {
+      pointerIsMouse = e.pointerType === 'mouse';
+      mouseX = e.clientX; mouseY = e.clientY;
+      if (dragging || !pointerIsMouse) return;
+      const [x, y] = evPoint(e);
+      hover = nodeAt(x, y);
+      cv.style.cursor = hover ? 'pointer' : '';
+      updateTip();
+    });
+    cv.addEventListener('pointerleave', () => { if (!dragging) { hover = null; updateTip(); } });
+    cv.addEventListener('click', (e) => { const [x, y] = evPoint(e); if (!nodeAt(x, y)) closePanel(); });
+
+    $('closeBtn').addEventListener('click', closePanel);
+    $('recenter').addEventListener('click', () => fit(900));
+
+    viewsEl.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled || b.dataset.mode === mode) return;
+      setMode(b.dataset.mode, false);
+    });
+
+    qInput.addEventListener('input', () => {
+      const q = qInput.value.trim().toLowerCase();
+      if (!q) { matches = null; return; }
+      matches = new Set(nodes.filter((n) => n.name.toLowerCase().includes(q) || n.artists.some((a) => a.toLowerCase().includes(q))).map((n) => n.id));
+    });
+    qInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && matches && matches.size) {
+        const first = nodes.find((n) => matches.has(n.id));
+        if (first) { openPanel(first); focusOn(first); qInput.blur(); }
+      }
+      if (e.key === 'Escape') { qInput.value = ''; matches = null; qInput.blur(); }
+    });
+    addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closePanel();
+      if (e.key === '/' && document.activeElement !== qInput) { e.preventDefault(); qInput.focus(); }
+    });
+
+    addEventListener('resize', () => {
+      resize(); moveThumb();
+      const portrait = stage.clientHeight > stage.clientWidth * 1.1;
+      if (nodes.length && portrait !== wasPortrait) setMode(mode, false);
+    });
+  }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(stage.clientWidth * dpr);
+    cv.height = Math.round(stage.clientHeight * dpr);
+  }
+
+  /* ---------- load ---------- */
+  async function init() {
+    resize();
+    let albums;
+    try {
+      let res = await fetch('library.json', { cache: 'no-cache' });
+      if (!res.ok) res = await fetch('albums.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error(res.status);
+      albums = await res.json();
+      if (!Array.isArray(albums)) albums = albums.albums || [];
+      // this version leaves the ambient playlist out: its songs are ignored, and albums that only
+      // came from it (not saved, no liked songs, in no other playlist) are dropped
+      const EXCLUDE = new Set([AMBIENT_PLAYLIST]);
+      albums = albums.map((a) => {
+        if (!a.playlists || !Object.keys(a.playlists).some((p) => EXCLUDE.has(p))) return a;
+        const pl = { ...a.playlists }; for (const p of EXCLUDE) delete pl[p];
+        return { ...a, playlists: pl };
+      }).filter((a) => a.saved !== false || a.likedSongs > 0 || Object.keys(a.playlists || {}).length);
+    } catch (err) {
+      showMessage('Couldn\'t load <code>albums.json</code>. Keep it in the same folder as this page, and open the page from GitHub Pages or a local server (for example <code>python -m http.server</code>) rather than double-clicking the file.');
+      return;
+    }
+    if (!albums.length) { showMessage('<code>albums.json</code> is empty. Run the export script again.'); return; }
+
+    const perArtist = new Map();
+    for (const a of albums) perArtist.set(a.artists[0], (perArtist.get(a.artists[0]) || 0) + 1);
+
+    // each album's home playlist: the one holding most of its songs (ties go to the smaller playlist)
+    const plSize = {};
+    for (const a of albums) for (const [p, c] of Object.entries(a.playlists || {})) plSize[p] = (plSize[p] || 0) + c;
+    const homeOf = (a) => {
+      if (a.playlists && a.playlists[AMBIENT_PLAYLIST]) return 'Ambient (' + AMBIENT_PLAYLIST + ')';
+      let best = null;
+      for (const [p, c] of Object.entries(a.playlists || {})) if (!best || c > best.c || (c === best.c && plSize[p] < plSize[best.p])) best = { p, c };
+      return best ? best.p : 'Not in a playlist';
+    };
+    const homes = albums.map(homeOf), homeCount = {};
+    for (const h of homes) homeCount[h] = (homeCount[h] || 0) + 1;
+
+    nodes = albums.map((a, i) => ({
+      ...a, i,
+      saved: a.saved !== false, songs: a.songs || [],
+      sz: (a.saved !== false || (a.savedSongs || 0) >= 0.6 * (a.tracks || 99)) ? 1 : 0.62,
+      dim: (a.saved !== false || (a.savedSongs || 0) >= 0.6 * (a.tracks || 99)) ? 1 : 0.62,
+      pl: homeCount[homes[i]] < 4 && homes[i] !== 'Not in a playlist' && !homes[i].startsWith('Ambient') ? 'Small playlists' : homes[i],
+      x: (Math.random() - .5) * 10, y: (Math.random() - .5) * 10,
+      tx: 0, ty: 0, gi: 0,
+      h: 0, o: 1, ph: Math.random() * Math.PI * 2,
+      img: null, failed: false, loadT: 0, rgb: null, bucket: null, born: 0,
+      genre: genreOf(a), artistCount: perArtist.get(a.artists[0]),
+      col: `hsl(${hashHue(a.id)}, 18%, 22%)`
+    }));
+    $('count').textContent = nodes.filter((n) => n.saved).length + ' saved albums, ' + nodes.filter((n) => !n.saved).length + ' from songs';
+
+    wireInput();
+    startSim();
+    setMode('genre', true);
+
+    // one orchestrated moment: tiles burst out of the center, group by group
+    const t0 = performance.now() + 120;
+    for (const n of nodes) n.born = reduceMotion ? 0 : t0 + n.gi * 55 + Math.random() * 260;
+
+    // load covers a few at a time, saved albums first, and keep only a small copy
+    const queue = [...nodes].sort((x, y) => (y.sz - x.sz));
+    let active = 0;
+    function pump() { while (active < 8 && queue.length) { active++; load(queue.shift()); } }
+    function fin() { active--; done(); pump(); }
+    function load(n) {
+      if (!n.cover) { n.failed = true; fin(); return; }
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        const c = readColor(img);
+        const t = document.createElement('canvas'); t.width = t.height = THUMB;
+        t.getContext('2d').drawImage(img, 0, 0, THUMB, THUMB);
+        n.img = t; n.loadT = performance.now();
+        if (c) { n.rgb = c.rgb; n.bucket = c.bucket; n.col = `rgb(${c.rgb.join(',')})`; }
+        fin();
+      };
+      img.onerror = () => { n.failed = true; fin(); };
+      img.src = n.cover;
+    }
+    function done() {
+      settled++;
+      if (settled < nodes.length) return;
+      if (!colorBlocked && nodes.some((n) => n.bucket)) {
+        colorReady = true; colorBtn.disabled = false; colorBtn.title = '';
+      } else {
+        colorBtn.title = 'Color view needs the site hosted on GitHub Pages or a local server';
+      }
+    }
+
+    pump();
+    requestAnimationFrame(frame);
+  }
+
+  (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(() => {}).catch(() => {});
+  init();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveThumb);
+})();
+</script>
+</body>
+</html>
